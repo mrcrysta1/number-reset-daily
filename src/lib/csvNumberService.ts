@@ -236,3 +236,27 @@ export const getNumbersWithReset = async (): Promise<PhoneNumber[]> => {
     throw error;
   }
 };
+
+// Get used numbers with daily reset logic applied
+export const getUsedNumbers = async (): Promise<PhoneNumber[]> => {
+  try {
+    // Load used numbers from localStorage first
+    let usedNumbers = loadUsedFromLocalStorage();
+    if (!usedNumbers) {
+      // If not in localStorage, fetch from CSV
+      usedNumbers = await fetchUsedNumbers();
+    }
+    
+    // Apply daily reset logic
+    const resetUsedNumbers = resetDailyNumbers(usedNumbers);
+    
+    // Save reset numbers back
+    await saveUsedNumbers(resetUsedNumbers);
+    
+    // Return only numbers that are still marked as used (not reset)
+    return resetUsedNumbers.filter(num => num.status === 'used');
+  } catch (error) {
+    console.error('Error in getUsedNumbers:', error);
+    throw error;
+  }
+};
