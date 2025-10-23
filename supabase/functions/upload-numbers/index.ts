@@ -30,13 +30,12 @@ Deno.serve(async (req) => {
     // Prepare numbers for insertion
     const numbersToInsert = numbers.map((num: string) => ({
       number: num.trim(),
-      used: false,
-      last_used_at: null,
+      last_used: null,
     }));
 
     // Insert numbers (on conflict do nothing to avoid duplicates)
     const { data, error } = await supabase
-      .from('numbers')
+      .from('phone_numbers')
       .upsert(numbersToInsert, { onConflict: 'number', ignoreDuplicates: true });
 
     if (error) {
