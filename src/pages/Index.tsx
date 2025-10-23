@@ -5,7 +5,12 @@ import { UploadNumbers } from "@/components/UploadNumbers";
 import { ExportNumbers } from "@/components/ExportNumbers";
 import { Pagination } from "@/components/Pagination";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { 
+  getNumbersWithReset, 
+  markNumberAsUsed, 
+  saveNumbers,
+  PhoneNumber 
+} from "@/lib/csvNumberService";
 
 interface NumberRecord {
   id: string;
@@ -14,6 +19,8 @@ interface NumberRecord {
   last_used_at: string | null;
 }
 
+const ITEMS_PER_PAGE = 10;
+
 const Index = () => {
   const [numbers, setNumbers] = useState<NumberRecord[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
@@ -21,18 +28,38 @@ const Index = () => {
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  // Convert PhoneNumber to NumberRecord format
+  const convertToNumberRecord = (phoneNumbers: PhoneNumber[]): NumberRecord[] => {
+    return phoneNumbers.map((num, index) => ({
+      id: `${num.number}-${index}`,
+      number: num.number,
+      used: num.status === 'used',
+      last_used_at: num.last_used
+    }));
+  };
+
   const fetchNumbers = async (page: number = 1) => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('get-numbers', {
-        body: { page },
-      });
-
-      if (error) throw error;
-
-      setNumbers(data.numbers);
-      setTotalPages(data.totalPages);
-      setTotalCount(data.total);
+      // Get all numbers with daily reset logic applied
+      const allNumbers = await getNumbersWithReset();
+      
+      // Filter only available numbers
+      const availableNumbers = allNumbers.filter(num => num.status === 'available');
+      
+      // Calculate pagination
+      const total = availableNumbers.length;
+      const pages = Math.ceil(total / ITEMS_PER_PAGE);
+      const startIndex = (page - 1) * ITEMS_PER_PAGE;
+      const endIndex = startIndex + ITEMS_PER_PAGE;
+      const paginatedNumbers = availableNumbers.slice(startIndex, endIndex);
+      
+      // Convert to NumberRecord format
+      const recordNumbers = convertToNumberRecord(paginatedNumbers);
+      
+      setNumbers(recordNumbers);
+      setTotalPages(pages);
+      setTotalCount(total);
       setCurrentPage(page);
     } catch (error) {
       console.error('Error fetching numbers:', error);
@@ -48,95 +75,77 @@ const Index = () => {
 
   const handleNumberUsed = async (number: string) => {
     try {
-      const { error } = await supabase.functions.invoke('use-number', {
-        body: { number },
-      });
-
-      if (error) throw error;
-
-      // Remove number from list
+      // Get all numbers
+      const allNumbers = await getNumbersWithReset();
+      
+      // Mark the number as used
+      const updatedNumbers = markNumberAsUsed(allNumbers, number);
+      
+      // Save back to storage
+      await saveNumbers(updatedNumbers);
+      
+      // Remove number from current display
       setNumbers(prev => prev.filter(n => n.number !== number));
       setTotalCount(prev => prev - 1);
-
+      
       toast.success('✅ Number copied! Hidden for 24 hours.');
     } catch (error) {
       console.error('Error marking number as used:', error);
-      toast.error('Failed to mark number as used');
+      toast.error('Failed to update number');
     }
   };
 
-  const handlePageChange = (page: number) => {
-    fetchNumbers(page);
+  const handleUploadSuccess = () => {
+    fetchNumbers(currentPage);
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/80 shadow-lg">
-                <Phone className="h-6 w-6 text-primary-foreground" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-foreground">Number Manager</h1>
-                <p className="text-sm text-muted-foreground">
-                  24-hour number rotation system
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <UploadNumbers onUploadComplete={() => fetchNumbers(1)} />
-              <ExportNumbers />
-            </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center mb-8 animate-fade-in">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full mb-4">
+            <Phone className="w-8 h-8 text-white" />
           </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        {/* Stats */}
-        <div className="mb-8 grid gap-4 md:grid-cols-3">
-          <div className="rounded-lg border border-border bg-card p-6 transition-all hover:shadow-lg">
-            <p className="text-sm font-medium text-muted-foreground">Available Numbers</p>
-            <p className="mt-2 text-3xl font-bold text-foreground">{totalCount}</p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-6 transition-all hover:shadow-lg">
-            <p className="text-sm font-medium text-muted-foreground">Current Page</p>
-            <p className="mt-2 text-3xl font-bold text-foreground">{currentPage}</p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-6 transition-all hover:shadow-lg">
-            <p className="text-sm font-medium text-muted-foreground">Reset Time</p>
-            <p className="mt-2 text-xl font-bold text-accent">5:00 AM PKT</p>
-          </div>
+          <h1 className="text-4xl font-bold text-gray-800 mb-2">
+            Daily Reset Numbers
+          </h1>
+          <p className="text-gray-600">
+            Numbers automatically reset every 24 hours using CSV storage
+          </p>
         </div>
 
-        {/* Numbers Table */}
-        {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        <div className="max-w-6xl mx-auto space-y-6">
+          <div className="flex gap-4 justify-between items-center">
+            <UploadNumbers onUploadSuccess={handleUploadSuccess} />
+            <ExportNumbers numbers={numbers} />
           </div>
-        ) : (
-          <>
-            <NumbersTable numbers={numbers} onNumberUsed={handleNumberUsed} />
-            <div className="mt-6">
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gray-800">
+                Available Numbers
+              </h2>
+              <span className="text-sm text-gray-500">
+                Total: {totalCount}
+              </span>
+            </div>
+            
+            <NumbersTable
+              numbers={numbers}
+              loading={loading}
+              onNumberUsed={handleNumberUsed}
+            />
+            
+            {totalPages > 1 && (
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}
-                onPageChange={handlePageChange}
+                onPageChange={fetchNumbers}
               />
-            </div>
-          </>
-        )}
-      </main>
-
-      {/* Footer */}
-      <footer className="mt-16 border-t border-border bg-card/30 py-6">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          Numbers automatically reset 24 hours after use at 5:00 AM Pakistan time
+            )}
+          </div>
         </div>
-      </footer>
+      </div>
     </div>
   );
 };
