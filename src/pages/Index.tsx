@@ -9,8 +9,10 @@ import {
   getNumbersWithReset,
   markNumberAsUsed,
   saveNumbers,
-  PhoneNumber
+  PhoneNumber,
+  getUsedNumbers
 } from "@/lib/csvNumberService";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface NumberRecord {
   id: string;
@@ -23,12 +25,14 @@ const ITEMS_PER_PAGE = 10;
 
 const Index = () => {
   const [numbers, setNumbers] = useState<NumberRecord[]>([]);
+  const [usedNumbers, setUsedNumbers] = useState<NumberRecord[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [usedCount, setUsedCount] = useState(0);
   const [unusedCount, setUnusedCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("available");
 
   // Convert PhoneNumber to NumberRecord format
   const convertToNumberRecord = (phoneNumbers: PhoneNumber[]): NumberRecord[] => {
@@ -62,13 +66,10 @@ const Index = () => {
       const endIndex = startIndex + ITEMS_PER_PAGE;
       const paginatedNumbers = availableNumbers.slice(startIndex, endIndex);
       
-      // Convert to NumberRecord format
-      const recordNumbers = convertToNumberRecord(paginatedNumbers);
-      
-      setNumbers(recordNumbers);
+      setNumbers(convertToNumberRecord(paginatedNumbers));
       setTotalPages(pages);
       setTotalCount(total);
-      setCurrentPage(page); // Fix: Update current page state
+      setCurrentPage(page);
     } catch (error) {
       console.error('Error fetching numbers:', error);
       toast.error('Failed to load numbers');
@@ -77,74 +78,124 @@ const Index = () => {
     }
   };
 
+  const fetchUsedNumbers = async (page: number = 1) => {
+    setLoading(true);
+    try {
+      // Get used numbers from used_numbers.csv
+      const usedNumbersData = await getUsedNumbers();
+      
+      // Calculate pagination
+      const total = usedNumbersData.length;
+      const pages = Math.ceil(total / ITEMS_PER_PAGE);
+      const startIndex = (page - 1) * ITEMS_PER_PAGE;
+      const endIndex = startIndex + ITEMS_PER_PAGE;
+      const paginatedNumbers = usedNumbersData.slice(startIndex, endIndex);
+      
+      setUsedNumbers(convertToNumberRecord(paginatedNumbers));
+      setTotalPages(pages);
+      setTotalCount(total);
+      setCurrentPage(page);
+    } catch (error) {
+      console.error('Error fetching used numbers:', error);
+      toast.error('Failed to load used numbers');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetchNumbers();
-  }, []);
+    if (activeTab === "available") {
+      fetchNumbers(1);
+    } else {
+      fetchUsedNumbers(1);
+    }
+  }, [activeTab]);
+
+  const handlePageChange = (page: number) => {
+    if (activeTab === "available") {
+      fetchNumbers(page);
+    } else {
+      fetchUsedNumbers(page);
+    }
+  };
 
   const handleNumberUsed = async (numberId: string) => {
     try {
       const number = numbers.find(n => n.id === numberId);
       if (!number) return;
-      
+
       await markNumberAsUsed(number.number);
-      await fetchNumbers(currentPage);
-      toast.success('✅ Number copied! Hidden for 24 hours.');
+      toast.success('Number marked as used and moved to used_numbers.csv');
+      
+      // Refresh the current view
+      if (activeTab === "available") {
+        await fetchNumbers(currentPage);
+      } else {
+        await fetchUsedNumbers(currentPage);
+      }
     } catch (error) {
       console.error('Error marking number as used:', error);
-      toast.error('Failed to update number');
+      toast.error('Failed to mark number as used');
     }
   };
 
   const handleUploadSuccess = () => {
-    fetchNumbers(currentPage);
-  };
-
-  const handlePageChange = (page: number) => {
-    fetchNumbers(page);
+    toast.success('Numbers uploaded successfully!');
+    if (activeTab === "available") {
+      fetchNumbers(1);
+    } else {
+      fetchUsedNumbers(1);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center mb-8 animate-fade-in">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-primary rounded-full mb-4">
-            <Phone className="w-8 h-8 text-primary-foreground" />
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+      <div className="container mx-auto p-6 space-y-6">
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center justify-center p-3 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full shadow-lg">
+            <Phone className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-4xl font-bold mb-2">
-            Daily Reset Numbers
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+            Phone Number Manager
           </h1>
-          <p className="text-muted-foreground">
-            Numbers automatically reset every 24 hours
-          </p>
+          <p className="text-muted-foreground">Track and manage your phone numbers efficiently</p>
         </div>
 
-        {/* Dashboard showing used and unused counts */}
-        <div className="max-w-6xl mx-auto mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-card rounded-lg shadow-sm border p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Used Numbers</p>
-                  <p className="text-3xl font-bold text-red-600">{usedCount}</p>
-                </div>
-                <div className="h-12 w-12 rounded-full bg-red-100 flex items-center justify-center">
-                  <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="bg-card rounded-lg shadow-sm border p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Total Numbers</p>
+                <p className="text-3xl font-bold">{unusedCount + usedCount}</p>
+              </div>
+              <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center">
+                <Phone className="w-6 h-6 text-blue-600" />
               </div>
             </div>
-            <div className="bg-card rounded-lg shadow-sm border p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Unused Numbers</p>
-                  <p className="text-3xl font-bold text-green-600">{unusedCount}</p>
-                </div>
-                <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
-                  <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
+          </div>
+          <div className="bg-card rounded-lg shadow-sm border p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Used Numbers</p>
+                <p className="text-3xl font-bold text-red-600">{usedCount}</p>
+              </div>
+              <div className="h-12 w-12 rounded-full bg-red-100 flex items-center justify-center">
+                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </div>
+            </div>
+          </div>
+          <div className="bg-card rounded-lg shadow-sm border p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Unused Numbers</p>
+                <p className="text-3xl font-bold text-green-600">{unusedCount}</p>
+              </div>
+              <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
+                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
               </div>
             </div>
           </div>
@@ -153,33 +204,62 @@ const Index = () => {
         <div className="max-w-6xl mx-auto space-y-6">
           <div className="flex gap-4 justify-between items-center flex-wrap">
             <UploadNumbers onUploadSuccess={handleUploadSuccess} />
-            <ExportNumbers numbers={numbers} />
+            <ExportNumbers numbers={activeTab === "available" ? numbers : usedNumbers} />
           </div>
 
-          <div className="bg-card rounded-lg shadow-sm border p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">
-                Available Numbers
-              </h2>
-              <span className="text-sm text-muted-foreground">
-                Showing: {totalCount}
-              </span>
-            </div>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="available">Available Numbers</TabsTrigger>
+              <TabsTrigger value="used">Used Numbers</TabsTrigger>
+            </TabsList>
             
-            <NumbersTable
-              numbers={numbers}
-              loading={loading}
-              onNumberUsed={handleNumberUsed}
-            />
+            <TabsContent value="available" className="mt-6">
+              <div className="bg-card rounded-lg shadow-sm border p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-semibold">Available Numbers</h2>
+                  <span className="text-sm text-muted-foreground">Showing: {totalCount}</span>
+                </div>
+                
+                <NumbersTable
+                  numbers={numbers}
+                  loading={loading}
+                  onNumberUsed={handleNumberUsed}
+                />
+                
+                {totalPages > 1 && (
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={handlePageChange}
+                  />
+                )}
+              </div>
+            </TabsContent>
             
-            {totalPages > 1 && (
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={handlePageChange}
-              />
-            )}
-          </div>
+            <TabsContent value="used" className="mt-6">
+              <div className="bg-card rounded-lg shadow-sm border p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-semibold">Used Numbers</h2>
+                  <span className="text-sm text-muted-foreground">Showing: {totalCount}</span>
+                </div>
+                
+                <NumbersTable
+                  numbers={usedNumbers}
+                  loading={loading}
+                  onNumberUsed={handleNumberUsed}
+                  hideActions={true}
+                />
+                
+                {totalPages > 1 && (
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={handlePageChange}
+                  />
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     </div>
