@@ -26,6 +26,8 @@ const Index = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [usedCount, setUsedCount] = useState(0);
+  const [unusedCount, setUnusedCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   // Convert PhoneNumber to NumberRecord format
@@ -44,7 +46,13 @@ const Index = () => {
       // Get all numbers with daily reset logic applied
       const allNumbers = await getNumbersWithReset();
       
-      // Filter only available numbers
+      // Calculate used and unused counts
+      const used = allNumbers.filter(num => num.status === 'used').length;
+      const unused = allNumbers.filter(num => num.status === 'available').length;
+      setUsedCount(used);
+      setUnusedCount(unused);
+      
+      // Filter only available numbers (hide used numbers)
       const availableNumbers = allNumbers.filter(num => num.status === 'available');
       
       // Calculate pagination
@@ -60,6 +68,7 @@ const Index = () => {
       setNumbers(recordNumbers);
       setTotalPages(pages);
       setTotalCount(total);
+      setCurrentPage(page); // Fix: Update current page state
     } catch (error) {
       console.error('Error fetching numbers:', error);
       toast.error('Failed to load numbers');
@@ -90,6 +99,10 @@ const Index = () => {
     fetchNumbers(currentPage);
   };
 
+  const handlePageChange = (page: number) => {
+    fetchNumbers(page);
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8">
@@ -105,6 +118,38 @@ const Index = () => {
           </p>
         </div>
 
+        {/* Dashboard showing used and unused counts */}
+        <div className="max-w-6xl mx-auto mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-card rounded-lg shadow-sm border p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground mb-1">Used Numbers</p>
+                  <p className="text-3xl font-bold text-red-600">{usedCount}</p>
+                </div>
+                <div className="h-12 w-12 rounded-full bg-red-100 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+            <div className="bg-card rounded-lg shadow-sm border p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground mb-1">Unused Numbers</p>
+                  <p className="text-3xl font-bold text-green-600">{unusedCount}</p>
+                </div>
+                <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="max-w-6xl mx-auto space-y-6">
           <div className="flex gap-4 justify-between items-center flex-wrap">
             <UploadNumbers onUploadSuccess={handleUploadSuccess} />
@@ -117,7 +162,7 @@ const Index = () => {
                 Available Numbers
               </h2>
               <span className="text-sm text-muted-foreground">
-                Total: {totalCount}
+                Showing: {totalCount}
               </span>
             </div>
             
@@ -131,7 +176,7 @@ const Index = () => {
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}
-                onPageChange={fetchNumbers}
+                onPageChange={handlePageChange}
               />
             )}
           </div>
