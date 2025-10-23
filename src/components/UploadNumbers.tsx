@@ -1,76 +1,163 @@
+import { useState } from "react";
 import { Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useRef } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { saveNumbers, getNumbersWithReset, PhoneNumber } from "@/lib/csvNumberService";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 
 interface UploadNumbersProps {
-  onUploadComplete: () => void;
+  onUploadSuccess?: () => void;
 }
 
-export const UploadNumbers = ({ onUploadComplete }: UploadNumbersProps) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
+export const UploadNumbers = ({ onUploadSuccess }: UploadNumbersProps) => {
+  const [open, setOpen] = useState(false);
+  const [numberText, setNumberText] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.name.endsWith('.csv')) {
-      toast.error('Please upload a CSV file');
+  const handleUpload = async () => {
+    if (!numberText.trim()) {
+      toast.error("Please enter at least one number");
       return;
     }
 
+    setIsUploading(true);
     try {
-      const text = await file.text();
-      const lines = text.split('\n').filter(line => line.trim());
-      
-      // Remove header if present
-      const numbers = lines
-        .filter(line => !line.toLowerCase().includes('number'))
-        .map(line => line.split(',')[0].trim())
+      // Parse numbers from textarea - support multiple formats
+      const lines = numberText
+        .split(/[\n,;]+/) // Support newlines, commas, or semicolons as separators
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+        .filter(line => !line.toLowerCase().includes('number')) // Skip header lines
+        .map(line => {
+          // Extract number from various formats (e.g., "123456", "123456,available", etc.)
+          const parts = line.split(',');
+          return parts[0].trim();
+        })
         .filter(num => num.length > 0);
 
-      if (numbers.length === 0) {
-        toast.error('No valid numbers found in file');
+      if (lines.length === 0) {
+        toast.error("No valid numbers found");
+        setIsUploading(false);
         return;
       }
 
-      // Upload numbers via edge function
-      const { error } = await supabase.functions.invoke('upload-numbers', {
-        body: { numbers },
-      });
+      // Remove duplicates
+      const uniqueNumbers = [...new Set(lines)];
 
-      if (error) throw error;
+      // Get existing numbers
+      const existingNumbers = await getNumbersWithReset();
+      const existingNumbersSet = new Set(existingNumbers.map(n => n.number));
 
-      toast.success(`Successfully uploaded ${numbers.length} numbers`);
-      onUploadComplete();
+      // Filter out duplicates
+      const newNumbers = uniqueNumbers.filter(num => !existingNumbersSet.has(num));
 
-      // Reset file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+      if (newNumbers.length === 0) {
+        toast.info("All numbers already exist in the system");
+        setIsUploading(false);
+        return;
+      }
+
+      // Convert to PhoneNumber format
+      const phoneNumbers: PhoneNumber[] = newNumbers.map(number => ({
+        number,
+        status: 'available',
+        last_used: null,
+      }));
+
+      // Append to existing numbers
+      const allNumbers = [...existingNumbers, ...phoneNumbers];
+      await saveNumbers(allNumbers);
+
+      const skippedCount = uniqueNumbers.length - newNumbers.length;
+      const message = skippedCount > 0 
+        ? `Successfully uploaded ${newNumbers.length} numbers (${skippedCount} duplicates skipped)`
+        : `Successfully uploaded ${newNumbers.length} numbers`;
+      
+      toast.success(message);
+      
+      // Clear form and close dialog
+      setNumberText("");
+      setOpen(false);
+      
+      if (onUploadSuccess) {
+        onUploadSuccess();
       }
     } catch (error) {
       console.error('Error uploading numbers:', error);
       toast.error('Failed to upload numbers');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleSelectAll = () => {
+    if (!numberText) return;
+    const textarea = document.querySelector('textarea[aria-label="Enter phone numbers"]') as HTMLTextAreaElement;
+    if (textarea) {
+      textarea.select();
     }
   };
 
   return (
-    <>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".csv"
-        onChange={handleFileUpload}
-        className="hidden"
-      />
-      <Button
-        onClick={() => fileInputRef.current?.click()}
-        variant="outline"
-      >
-        <Upload className="mr-2 h-4 w-4" />
-        Upload CSV
-      </Button>
-    </>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="default" className="gap-2">
+          <Upload className="w-4 h-4" />
+          Upload Data
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[600px]">
+        <DialogHeader>
+          <DialogTitle>Upload Phone Numbers</DialogTitle>
+          <DialogDescription>
+            Paste or type phone numbers below. You can enter multiple numbers separated by new lines, commas, or semicolons.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <div className="flex justify-between items-center">
+              <Label htmlFor="numbers">Phone Numbers</Label>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={handleSelectAll}
+                disabled={!numberText}
+              >
+                Select All
+              </Button>
+            </div>
+            <Textarea
+              id="numbers"
+              aria-label="Enter phone numbers"
+              placeholder="Enter phone numbers here...\n\nExamples:\n+1234567890\n+0987654321\n+1122334455"
+              value={numberText}
+              onChange={(e) => setNumberText(e.target.value)}
+              className="min-h-[300px] font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground">
+              Tip: You can paste numbers from a spreadsheet or copy-paste from any source. Duplicates will be automatically skipped.
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={isUploading}>
+            Cancel
+          </Button>
+          <Button onClick={handleUpload} disabled={isUploading || !numberText.trim()}>
+            {isUploading ? "Uploading..." : "Upload Numbers"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
