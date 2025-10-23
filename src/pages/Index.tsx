@@ -5,11 +5,11 @@ import { UploadNumbers } from "@/components/UploadNumbers";
 import { ExportNumbers } from "@/components/ExportNumbers";
 import { Pagination } from "@/components/Pagination";
 import { toast } from "sonner";
-import { 
-  getNumbersWithReset, 
-  markNumberAsUsed, 
+import {
+  getNumbersWithReset,
+  markNumberAsUsed,
   saveNumbers,
-  PhoneNumber 
+  PhoneNumber
 } from "@/lib/csvNumberService";
 
 interface NumberRecord {
@@ -60,7 +60,6 @@ const Index = () => {
       setNumbers(recordNumbers);
       setTotalPages(pages);
       setTotalCount(total);
-      setCurrentPage(page);
     } catch (error) {
       console.error('Error fetching numbers:', error);
       toast.error('Failed to load numbers');
@@ -73,21 +72,13 @@ const Index = () => {
     fetchNumbers();
   }, []);
 
-  const handleNumberUsed = async (number: string) => {
+  const handleNumberUsed = async (numberId: string) => {
     try {
-      // Get all numbers
-      const allNumbers = await getNumbersWithReset();
+      const number = numbers.find(n => n.id === numberId);
+      if (!number) return;
       
-      // Mark the number as used
-      const updatedNumbers = markNumberAsUsed(allNumbers, number);
-      
-      // Save back to storage
-      await saveNumbers(updatedNumbers);
-      
-      // Remove number from current display
-      setNumbers(prev => prev.filter(n => n.number !== number));
-      setTotalCount(prev => prev - 1);
-      
+      await markNumberAsUsed(number.number);
+      await fetchNumbers(currentPage);
       toast.success('✅ Number copied! Hidden for 24 hours.');
     } catch (error) {
       console.error('Error marking number as used:', error);
@@ -100,32 +91,32 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+    <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8">
         <div className="text-center mb-8 animate-fade-in">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full mb-4">
-            <Phone className="w-8 h-8 text-white" />
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-primary rounded-full mb-4">
+            <Phone className="w-8 h-8 text-primary-foreground" />
           </div>
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">
+          <h1 className="text-4xl font-bold mb-2">
             Daily Reset Numbers
           </h1>
-          <p className="text-gray-600">
-            Numbers automatically reset every 24 hours using CSV storage
+          <p className="text-muted-foreground">
+            Numbers automatically reset every 24 hours
           </p>
         </div>
 
         <div className="max-w-6xl mx-auto space-y-6">
-          <div className="flex gap-4 justify-between items-center">
+          <div className="flex gap-4 justify-between items-center flex-wrap">
             <UploadNumbers onUploadSuccess={handleUploadSuccess} />
             <ExportNumbers numbers={numbers} />
           </div>
 
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="bg-card rounded-lg shadow-sm border p-6">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gray-800">
+              <h2 className="text-xl font-semibold">
                 Available Numbers
               </h2>
-              <span className="text-sm text-gray-500">
+              <span className="text-sm text-muted-foreground">
                 Total: {totalCount}
               </span>
             </div>
