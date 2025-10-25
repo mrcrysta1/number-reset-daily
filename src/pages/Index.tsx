@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
-import { Phone } from "lucide-react";
+import { Phone, RefreshCw, Search } from "lucide-react";
 import { NumbersTable } from "@/components/NumbersTable";
 import { UploadNumbers } from "@/components/UploadNumbers";
 import { ExportNumbers } from "@/components/ExportNumbers";
 import { Pagination } from "@/components/Pagination";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
   getNumbersWithReset,
@@ -33,6 +35,8 @@ const Index = () => {
   const [unusedCount, setUnusedCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("available");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Convert PhoneNumber to NumberRecord format
   const convertToNumberRecord = (phoneNumbers: PhoneNumber[]): NumberRecord[] => {
@@ -42,6 +46,14 @@ const Index = () => {
       used: num.status === 'used',
       last_used_at: num.last_used
     }));
+  };
+
+  // Filter numbers based on search query
+  const filterNumbers = (numbersArray: PhoneNumber[]) => {
+    if (!searchQuery.trim()) return numbersArray;
+    return numbersArray.filter(num => 
+      num.number.toLowerCase().includes(searchQuery.toLowerCase())
+    );
   };
 
   const fetchNumbers = async (page: number = 1) => {
@@ -57,7 +69,10 @@ const Index = () => {
       setUnusedCount(unused);
       
       // Filter only available numbers (hide used numbers)
-      const availableNumbers = allNumbers.filter(num => num.status === 'available');
+      let availableNumbers = allNumbers.filter(num => num.status === 'available');
+      
+      // Apply search filter
+      availableNumbers = filterNumbers(availableNumbers);
       
       // Calculate pagination
       const total = availableNumbers.length;
@@ -82,7 +97,10 @@ const Index = () => {
     setLoading(true);
     try {
       // Get used numbers from used_numbers.csv
-      const usedNumbersData = await getUsedNumbers();
+      let usedNumbersData = await getUsedNumbers();
+      
+      // Apply search filter
+      usedNumbersData = filterNumbers(usedNumbersData);
       
       // Calculate pagination
       const total = usedNumbersData.length;
@@ -109,7 +127,7 @@ const Index = () => {
     } else {
       fetchUsedNumbers(1);
     }
-  }, [activeTab]);
+  }, [activeTab, searchQuery]);
 
   const handlePageChange = (page: number) => {
     if (activeTab === "available") {
@@ -123,7 +141,7 @@ const Index = () => {
     try {
       const number = numbers.find(n => n.id === numberId);
       if (!number) return;
-
+      
       await markNumberAsUsed(number.number);
       toast.success('Number marked as used and moved to used_numbers.csv');
       
@@ -148,6 +166,20 @@ const Index = () => {
     }
   };
 
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    toast.info('Refreshing numbers...');
+    
+    if (activeTab === "available") {
+      await fetchNumbers(currentPage);
+    } else {
+      await fetchUsedNumbers(currentPage);
+    }
+    
+    setIsRefreshing(false);
+    toast.success('Numbers refreshed!');
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
       <div className="container mx-auto p-6 space-y-6">
@@ -158,7 +190,7 @@ const Index = () => {
           <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
             Phone Number Manager
           </h1>
-          <p className="text-muted-foreground">Track and manage your phone numbers efficiently</p>
+          <p className="text-muted-foreground">Track and manage your phone numbers efficiently with advanced search</p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
@@ -173,6 +205,7 @@ const Index = () => {
               </div>
             </div>
           </div>
+
           <div className="bg-card rounded-lg shadow-sm border p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -181,11 +214,12 @@ const Index = () => {
               </div>
               <div className="h-12 w-12 rounded-full bg-red-100 flex items-center justify-center">
                 <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
                 </svg>
               </div>
             </div>
           </div>
+
           <div className="bg-card rounded-lg shadow-sm border p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -194,7 +228,7 @@ const Index = () => {
               </div>
               <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
                 <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
                 </svg>
               </div>
             </div>
@@ -212,6 +246,28 @@ const Index = () => {
               <TabsTrigger value="available">Available Numbers</TabsTrigger>
               <TabsTrigger value="used">Used Numbers</TabsTrigger>
             </TabsList>
+            
+            <div className="mt-4 flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                <Input
+                  type="text"
+                  placeholder="Search phone numbers..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                variant="outline"
+                className="gap-2"
+              >
+                <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
             
             <TabsContent value="available" className="mt-6">
               <div className="bg-card rounded-lg shadow-sm border p-6">
